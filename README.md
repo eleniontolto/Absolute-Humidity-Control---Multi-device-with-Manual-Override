@@ -33,7 +33,6 @@ It respects manual overrides without fighting you, protects your equipment with 
 ## Requirements
 
 - Home Assistant 2023.4 or later recommended
-- One **Input Boolean** helper (create in Settings → Helpers) to use as the automation enable toggle
 - A primary humidity sensor (required)
 - Primary temperature sensor, reference humidity sensor, and reference temperature sensor (all optional, but all four are needed for full thermodynamic normalization)
 
@@ -45,7 +44,7 @@ It respects manual overrides without fighting you, protects your equipment with 
 Click the import badge at the top of this page, or paste the raw file URL into **Settings → Automations → Blueprints → Import Blueprint**.
 
 ### Manual
-1. Download `multidevice_climate_control.yaml`
+1. Download `multidevice_humidity_control.yaml`
 2. Place it in your Home Assistant `config/blueprints/automation/` directory
 3. Restart Home Assistant or reload blueprints
 4. Go to **Settings → Automations → Blueprints** and find *Multi-Device Humidity Control with Manual Override*
@@ -60,7 +59,6 @@ Click the import badge at the top of this page, or paste the raw file URL into *
 | Primary Temperature Sensor | Co-located temperature sensor for physics math | Optional |
 | Reference Humidity Sensor | Humidity sensor in a dry reference area | Optional |
 | Reference Temperature Sensor | Co-located with reference humidity sensor | Optional |
-| Automation Enable Toggle | Input Boolean to pause automation from dashboard | Required |
 | Static Baseline Humidity | Fallback baseline when reference sensors unavailable | 50% |
 | Sensor Failure Behavior | Static Baseline or Raw RH% when physics math can't run | Static |
 | Control Device(s) | One or more devices to control | Required |
