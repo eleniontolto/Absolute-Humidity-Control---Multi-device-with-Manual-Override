@@ -1,0 +1,637 @@
+blueprint:
+  name: Multi-Device Humidity Control with Manual Override
+  description: |
+    ### **Multi-Device Humidity Control with Manual Override**
+    A high-fidelity climate controller using thermodynamic normalization (Magnus-Tetens)
+    to track moisture levels across varying temperature zones. It provides the accuracy
+    of "Absolute Humidity" math with the intuitive ease of **Percentage (%)** controls.
+
+    **Key Features:**
+    - **Normalized Baseline:** Syncs the reference humidity to the target room's
+      temperature to prevent false triggers caused by heat spikes or room-to-room
+      temperature gaps.
+    - **Human-in-the-Loop:** Detects manual overrides on any device in the group
+      and pauses all automation for the full Override Cooldown. No tug-of-war.
+    - **Separate Timers:** Manual Override Cooldown and Safety Rest Period are
+      fully independent — tune each for your specific needs.
+    - **Precision Safety Rest:** The Safety Rest Period applies ONLY after a
+      Safety Max Run force-off — never after a humidity-triggered shutoff,
+      sensor change, or any other scenario.
+    - **Smart Rest Interruption:** If you manually interact with a device during
+      a Safety Rest, the automation intelligently compares remaining rest time to
+      your Override Cooldown setting and applies whichever is longer — ensuring
+      you always get the full cooldown you configured, no more, no less.
+    - **Max Run Respects Manual Control:** Safety Max Run is suspended during
+      a manual override window. After the override expires, the Max Run clock
+      starts fresh — giving your equipment the full protection it needs.
+    - **Per-Device Recovery:** After any lockout expires, each device is
+      individually reclaimed, so a manually-toggled device is correctly
+      recovered even when other devices in the group were unaffected.
+    - **Deep-Dry Hysteresis:** Tuned to clear lingering moisture from cooking,
+      showering, or laundry. Devices stay on until the room is truly dry.
+    - **Dynamic Fail-Safe:** Falls back to a user-defined Static Baseline or
+      Raw Humidity Comparison if reference sensors go offline.
+    - **Data Integrity:** Filters unknown/unavailable sensor states to prevent
+      erratic device behavior.
+    - **Universal Entity Support:** Supports any toggleable entity — Fans,
+      Switches, Lights, Input Booleans, Helper Groups.
+    - **Automatic Unit Conversion:** Handles mixed °C/°F sensor hardware
+      transparently. The physics stay correct regardless.
+
+    **Known Limitations:**
+    - **Effective run time:** Due to minute-tick timing, devices will run for
+      approximately max_run + 1 minutes per cycle, not exactly max_run. Set
+      values accordingly.
+    - **Sensor response lag:** Temperature and reference humidity sensor changes may
+      take up to 60 seconds to affect behavior. Primary humidity sensor is always instant.
+    - **Manual override detection:** Relies on HA's context system. Some voice
+      assistants and third-party integrations may not correctly identify manual
+      changes, bypassing the lockout.
+    - **Device flicker:** Devices may briefly turn off then immediately back on
+      during transitions out of manual override periods. This is intentional —
+      the automation clears stale user contexts before reclaiming devices to
+      ensure timer logic stays accurate.
+      
+    **Credits:** Hardened and enhanced version of "Switch a fan based on absolute
+    humidity difference between two humid/temp sensors" by W6Es3QEa. Refined for
+    modern Home Assistant standards, multiple device support, safety features,
+    manual override functionality, and intuitive percentage-based calibration.
+
+  domain: automation
+
+  input:
+
+    humidity_sensor:
+      name: Primary Humidity Sensor
+      description: >
+        The humidity sensor in the room you are controlling (e.g., Bathroom).
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+
+    humidity_temp_sensor:
+      name: Primary Temperature Sensor (Optional)
+      description: >
+        Temperature sensor co-located with the Primary Humidity Sensor.
+        Required for the Dynamic Physics math. Without this, the blueprint
+        falls back to the Static Baseline or Raw Humidity mode.
+      default: null
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    reference_humidity_sensor:
+      name: Reference Humidity Sensor (Optional)
+      description: >
+        A humidity sensor in a stable dry area (e.g., Hallway) used as a
+        moving baseline. Without this, the Static Baseline slider is used.
+      default: null
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+
+    reference_temp_sensor:
+      name: Reference Temperature Sensor (Optional)
+      description: >
+        Temperature sensor co-located with the Reference Humidity Sensor.
+        Required for full Magnus-Tetens thermodynamic normalization.
+      default: null
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    automation_enable:
+      name: Automation Enable Toggle
+      description: >
+        An Input Boolean helper that lets you pause this automation from
+        the dashboard without deleting it. Create this in
+        Settings → Helpers before configuring this blueprint.
+      selector:
+        entity:
+          domain: input_boolean
+
+    reference_humidity:
+      name: Static Baseline Humidity
+      description: >
+        The "normal" background humidity for your home (e.g., 50%). Used as
+        the baseline when reference sensors are unavailable or not selected.
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: "%"
+
+    fallback_mode:
+      name: Sensor Failure Behavior
+      description: >
+        What to do when reference or temperature sensors aren't set up or go offline and the physics math
+        cannot run. Raw Humidity comparison is only accurate when the primary
+        and reference areas stay at near-identical temperatures at all times.
+        Temperature differences from room layout or acute heat spikes (showers,
+        cooking) will cause Raw mode to under- or over-trigger. Static Baseline
+        is recommended for most homes.
+      default: static
+      selector:
+        select:
+          options:
+            - label: "Use Static Baseline Slider (Recommended)"
+              value: "static"
+            - label: "Use Raw Humidity Comparison (RH% vs RH%)"
+              value: "raw"
+
+    control_device:
+      name: Control Device(s)
+      description: >
+        One or more devices to control — Fans, Switches, Dehumidifiers,
+        Lights, Input Booleans, or Helper Groups.
+
+
+        **Multi-device behavior:** All selected devices act as a unified team.
+        Manually adjusting ANY one device will pause the entire group for the
+        full Manual Override Cooldown before automation resumes.
+
+
+        **Tip:** For finer lockout control, create a Helper Group and select
+        the group here instead of individual devices.
+      selector:
+        entity:
+          domain:
+            - switch
+            - fan
+            - light
+            - input_boolean
+          multiple: true
+
+    rising_threshold:
+      name: Rising Threshold (Turn-ON Offset)
+      description: >
+        How far above the baseline humidity the room must rise before devices
+        are turned ON. Example: 8 means devices turn on when the room reads
+        8% more humid than the baseline.
+      default: 8
+      selector:
+        number:
+          min: 0
+          max: 50
+          mode: slider
+          unit_of_measurement: "%"
+
+    falling_threshold:
+      name: Falling Threshold (Turn-OFF Offset)
+      description: >
+        How close to the baseline the room must return before devices are turned
+        OFF. Example: 3 means devices turn off once the room is within 3% of
+        the baseline. Must be lower than the Rising Threshold to create proper
+        hysteresis and avoid rapid cycling.
+      default: 3
+      selector:
+        number:
+          min: 0
+          max: 50
+          mode: slider
+          unit_of_measurement: "%"
+
+    max_run_time:
+      name: Safety Max Run Time
+      description: >
+        Maximum minutes devices may run when turned on BY THE AUTOMATION before
+        being force-stopped. Protects equipment from indefinite run times caused
+        by sensor failure, open windows, or edge cases.
+
+
+        If YOU manually turn devices on, this watchdog does not apply during
+        your Manual Override window. After the override expires, the Max Run
+        clock starts fresh from that moment.
+
+
+        Set to 0 to disable the watchdog entirely.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 240
+          unit_of_measurement: minutes
+
+    safety_rest_time:
+      name: Safety Rest Period
+      description: >
+        Minutes the automation pauses after a Safety Max Run force-off before
+        resuming normal control. Gives equipment time to cool down or rest.
+
+
+        This ONLY activates after a Safety Max Run shutoff. It does not apply
+        to humidity-triggered shutoffs, sensor changes, or any other scenario.
+
+
+        If you manually interact with a device during this rest window, the
+        automation compares the remaining rest time to your Override Cooldown:
+        whichever is LONGER will apply, ensuring you always get the full
+        protection of both timers.
+
+
+        Set to 0 to skip the rest period entirely.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: minutes
+
+    override_timeout:
+      name: Manual Override Cooldown
+      description: >
+        Minutes to wait after any device in the group is manually toggled
+        before the automation resumes control of the group.
+
+
+        During this window the automation will not turn any device ON or OFF.
+        The Safety Max Run watchdog is also suspended during this window.
+
+
+        After the window expires, the automation re-evaluates humidity and
+        reclaims all devices to the correct state. If you had manually turned
+        devices ON, the Safety Max Run clock then begins from zero.
+
+
+        Set to 0 to disable manual override protection entirely.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: minutes
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRIGGERS
+# Fires on any relevant sensor or device state change, or every minute for
+# the time-based Max Run safety check. Optional sensor triggers are silently
+# skipped by Home Assistant if those inputs are left unconfigured.
+# ─────────────────────────────────────────────────────────────────────────────
+trigger:
+  - platform: state
+    entity_id: !input humidity_sensor
+  - platform: state
+    entity_id: !input automation_enable
+  - platform: time_pattern
+    minutes: "/1"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VARIABLES
+# All decision logic is computed here. Variables are evaluated in order;
+# each may reference those defined above it.
+# ─────────────────────────────────────────────────────────────────────────────
+variables:
+
+  # ── Input Mapping ──────────────────────────────────────────────────────────
+  humidity_sensor:  !input humidity_sensor
+  temp_sensor:      !input humidity_temp_sensor
+  ref_sensor:       !input reference_humidity_sensor
+  ref_temp:         !input reference_temp_sensor
+  ref_val:          !input reference_humidity
+  fallback_type:    !input fallback_mode
+  rising_thresh:    !input rising_threshold
+  falling_thresh:   !input falling_threshold
+  max_run:          !input max_run_time
+  safety_rest_min:  !input safety_rest_time
+  override_min:     !input override_timeout
+  enable_switch:    !input automation_enable
+  target_entities:  !input control_device
+
+  # ── Manual Override Detection ──────────────────────────────────────────────
+  # TRUE if the most recent state change on ANY device in the group was made
+  # by a human (context.user_id is not None). Becomes FALSE as soon as the
+  # automation itself next changes a device (automation context has no user_id).
+  is_manual: >
+    {% set ns = namespace(manual=false) %}
+    {% set ent_list = [target_entities] if target_entities is string else target_entities %}
+    {% for ent in ent_list %}
+      {% if states[ent] is not none and states[ent].context.user_id is not none %}
+        {% set ns.manual = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.manual }}
+
+  # ── Elapsed Time Tracking ──────────────────────────────────────────────────
+  # Timestamp of the most recently changed device in the group.
+  # IMPORTANT: We do NOT include this.attributes.last_triggered here.
+  # The automation's per-minute tick would reset this to ~60 seconds ago on
+  # every run, permanently capping time_diff at ~1 minute and breaking all
+  # timer logic. Device last_changed is the only correct source of truth.
+  last_changed_ts: >
+    {% set ent_list = [target_entities] if target_entities is string else target_entities %}
+    {% set ns = namespace(latest=0) %}
+    {% for ent in ent_list %}
+      {% if states[ent] is not none %}
+        {% set ts = as_timestamp(states[ent].last_changed, 0) %}
+        {% if ts > ns.latest %}{% set ns.latest = ts %}{% endif %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.latest }}
+
+  # Minutes elapsed since the most recent device state change in the group.
+  time_diff: "{{ (as_timestamp(now()) - last_changed_ts | float(0)) / 60 }}"
+
+  # ── Group State ────────────────────────────────────────────────────────────
+  # Aggregate ON/OFF: 'on' if ANY device in the group is currently on.
+  switch_state: >
+    {% set ent_list = [target_entities] if target_entities is string else target_entities %}
+    {{ 'on' if expand(ent_list) | selectattr('state', 'eq', 'on') | list | count > 0 else 'off' }}
+
+  # ── Active Lockout Flag ────────────────────────────────────────────────────
+  # TRUE only when a human recently touched a device AND the override window
+  # has not yet expired. This is time-bounded, unlike raw is_manual which
+  # stays true as long as any device carries a user context — even after the
+  # window has long expired. Using raw is_manual as a gate caused the
+  # "26-minute run" bug where a stale user context permanently blinded Gate 1.
+  manual_lockout_active: >
+    {{ is_manual and time_diff | float(0) < override_min | float(0) }}
+
+  # ── Data Validation ────────────────────────────────────────────────────────
+  p_hum_ok: "{{ states(humidity_sensor) | is_number }}"
+  p_tmp_ok: "{{ temp_sensor not in [none, ''] and states(temp_sensor) | is_number }}"
+  r_hum_ok: "{{ ref_sensor not in [none, ''] and states(ref_sensor) | is_number }}"
+  r_tmp_ok: "{{ ref_temp not in [none, ''] and states(ref_temp) | is_number }}"
+  current_hum: "{{ states(humidity_sensor) | float(0) }}"
+
+  # ── Dynamic Physics (Magnus-Tetens Normalization) ──────────────────────────
+  # Computes what the reference humidity WOULD read if measured at the primary
+  # room's temperature. Eliminates false triggers from temperature differences
+  # between rooms. Falls back gracefully when sensors are unavailable.
+  actual_baseline: >
+    {% if p_hum_ok and p_tmp_ok and r_hum_ok and r_tmp_ok %}
+      {% set t_pri = states(temp_sensor) | float(20) %}
+      {% set t_ref = states(ref_temp) | float(20) %}
+      {% set u_p = state_attr(temp_sensor, 'unit_of_measurement') %}
+      {% set u_r = state_attr(ref_temp, 'unit_of_measurement') %}
+      {% set t_pri_c = (t_pri - 32) * 5/9 if u_p in ['°F','F'] else t_pri %}
+      {% set t_ref_c = (t_ref - 32) * 5/9 if u_r in ['°F','F'] else t_ref %}
+      {% set es_ref = 6.112 * 2.71828**((17.67 * t_ref_c) / (t_ref_c + 243.5)) %}
+      {% set es_pri = 6.112 * 2.71828**((17.67 * t_pri_c) / (t_pri_c + 243.5)) %}
+      {% set e_ref  = (states(ref_sensor) | float(50) * es_ref) / 100 %}
+      {{ ((e_ref / es_pri) * 100) | round(1) }}
+    {% elif r_hum_ok and fallback_type == 'raw' %}
+      {{ states(ref_sensor) | float(ref_val) }}
+    {% else %}
+      {{ ref_val | float(50) }}
+    {% endif %}
+
+  # Humidity difference: positive means room is more humid than baseline.
+  difference: "{{ current_hum - actual_baseline | float(50) }}"
+
+  # ── Decision Engine ────────────────────────────────────────────────────────
+  # Determines what state devices SHOULD be in based on current conditions.
+  #
+  # Two-track Max Run timer:
+  #   Automation-ON devices: fire after `max_run` minutes
+  #   Manually-ON devices:   fire after `override_min + max_run` minutes
+  #     (the override window must fully expire first; then max_run begins fresh)
+  #
+  # Note: Gate 1 always fires before Gate 2 (choose is first-match-wins), so
+  # the Max Run branch here is primarily defensive — it keeps target_mode
+  # consistent with Gate 1's condition so any_needs_change stays accurate.
+  target_mode: >
+    {% if switch_state == 'on'
+          and not manual_lockout_active
+          and max_run | float(0) > 0
+          and (
+            (is_manual and time_diff | float(0) >= (override_min | float(0) + max_run | float(0)))
+            or
+            (not is_manual and time_diff | float(0) >= max_run | float(0))
+          ) %}
+      off
+    {% elif switch_state == 'off' and difference >= rising_thresh | float(0) %}
+      on
+    {% elif switch_state == 'on' and difference > falling_thresh | float(0) %}
+      on
+    {% else %}
+      off
+    {% endif %}
+
+  # ── Per-Device Drift Detection ─────────────────────────────────────────────
+  # Checks each device individually against target_mode rather than comparing
+  # target_mode to the aggregate switch_state. This correctly handles the case
+  # where one device is manually out of sync with the rest of the group — the
+  # aggregate switch_state would mask the discrepancy and prevent reclamation.
+  any_needs_change: >
+    {% set ent_list = [target_entities] if target_entities is string else target_entities %}
+    {% set ns = namespace(needs=false) %}
+    {% for ent in ent_list %}
+      {% if states[ent] is not none and states[ent].state != target_mode %}
+        {% set ns.needs = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.needs }}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACTION
+# Two-gate architecture inside a global enable wrapper.
+#
+# GATE 1 — Safety Max Run (force-off + safety rest)
+#   Fires when devices have run too long. Turns devices off, then holds the
+#   automation in a responsive rest loop for `safety_rest_min`. The loop
+#   watches for manual device touches and intelligently resolves conflicts
+#   between the rest timer and the override cooldown timer.
+#
+# GATE 2 — Standard Humidity Control
+#   Normal ON/OFF based on current humidity vs. baseline. Blocked only during
+#   an active manual lockout window. Turn-OFF actions are always immediate.
+#
+# HA's `choose` is first-match-wins: Gate 1 and Gate 2 are mutually exclusive
+# within a single automation run. Gate 2 is never evaluated when Gate 1 fires.
+# ─────────────────────────────────────────────────────────────────────────────
+action:
+  - choose:
+
+      # ── Global Enable Wrapper ──────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            alias: "Automation is enabled"
+            value_template: "{{ is_state(enable_switch, 'on') }}"
+
+        sequence:
+          - choose:
+
+              # ════════════════════════════════════════════════════════════════
+              # GATE 1: SAFETY MAX RUN
+              # ════════════════════════════════════════════════════════════════
+              # Fires when devices have been running too long.
+              #
+              # Two-track timer (both require not manual_lockout_active):
+              #   Automation-ON: time_diff >= max_run
+              #   Manually-ON:   time_diff >= override_min + max_run
+              #     (override window must expire first; then max_run runs fresh)
+              #
+              # After force-off, enters a smart safety rest loop:
+              #   - Watches for any device state change during the rest window
+              #   - If timeout: rest complete, normal operation resumes
+              #   - If human touch with MORE time remaining than override_min:
+              #       rest continues (the longer timer wins; touch is registered
+              #       but does not shorten the rest)
+              #   - If human touch with LESS time remaining than override_min:
+              #       rest is cancelled; override_min takes over instead
+              #   - If non-human change (another automation): ignored, rest
+              #       continues with the remaining time
+              # ════════════════════════════════════════════════════════════════
+              - conditions:
+                  - condition: template
+                    alias: "Safety Max Run threshold reached"
+                    value_template: >
+                      {{ switch_state == 'on'
+                         and not manual_lockout_active
+                         and max_run | float(0) > 0
+                         and (
+                           (is_manual
+                            and time_diff | float(0) >= (override_min | float(0) + max_run | float(0)))
+                           or
+                           (not is_manual
+                            and time_diff | float(0) >= max_run | float(0))
+                         ) }}
+
+                sequence:
+                  # Step 1: Force all devices off.
+                  - service: homeassistant.turn_off
+                    target:
+                      entity_id: !input control_device
+
+                  # Step 2: Safety rest loop (only if safety_rest_min > 0).
+                  # Uses wait_for_trigger watching ONLY for devices turning ON.
+                  # Devices are already off, so the only meaningful event is a
+                  # human manually turning something on during the rest window.
+                  - if:
+                      - condition: template
+                        value_template: "{{ safety_rest_min | float(0) > 0 }}"
+                    then:
+                      - variables:
+                          remaining_secs: "{{ safety_rest_min | float(0) * 60 }}"
+                          rest_end_ts: "{{ as_timestamp(now()) + safety_rest_min | float(0) * 60 }}"
+                      - repeat:
+                          until: "{{ remaining_secs <= 0 }}"
+                          sequence:
+                            # Wait for any device turning ON, or until rest expires.
+                            # Uses wall-clock rest_end_ts instead of wait.remaining
+                            # because wait.remaining returns 0 when a trigger fires
+                            # before timeout, making it unreliable for time tracking.
+                            - wait_for_trigger:
+                                - platform: state
+                                  entity_id: !input control_device
+                                  to: 'on'
+                              timeout: "{{ remaining_secs }}"
+                              continue_on_timeout: true
+
+                            - choose:
+
+                                # ── Rest timed out naturally ───────────────
+                                # Rest is complete. Set remaining to 0 so the
+                                # until condition exits the loop.
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ wait.trigger is none }}"
+                                  sequence:
+                                    - variables:
+                                        remaining_secs: 0
+
+                                # ── Human turned a device ON ───────────────
+                                # Device stays ON for override_min then turns
+                                # back off. Rest end time is extended if the
+                                # override window would outlast it — ensuring
+                                # the rest period is never cut short.
+                                - conditions:
+                                    - condition: template
+                                      value_template: >
+                                        {{ wait.trigger is not none
+                                           and wait.trigger.to_state.context.user_id
+                                               is not none }}
+                                  sequence:
+                                    # Extend rest end if override outlasts it.
+                                    - variables:
+                                        rest_end_ts: >
+                                          {{ [rest_end_ts,
+                                              as_timestamp(now()) + override_min | float(0) * 60]
+                                             | max }}
+                                    # Hold for the full override window.
+                                    - delay:
+                                        seconds: "{{ (override_min | float(0) * 60) | int }}"
+                                    # Turn device back off — override expired.
+                                    - service: homeassistant.turn_off
+                                      target:
+                                        entity_id: !input control_device
+                                    # Recalculate remaining rest from wall clock.
+                                    - variables:
+                                        remaining_secs: >
+                                          {{ [rest_end_ts - as_timestamp(now()), 0] | max }}
+
+                                # ── Another automation turned a device ON ──
+                                # Non-human ON event. Ignore, continue rest
+                                # using true remaining time from wall clock.
+                              default:
+                                - variables:
+                                    remaining_secs: >
+                                      {{ [rest_end_ts - as_timestamp(now()), 0] | max }}
+
+                  # Step 3: Reclaim all devices after rest loop exits.
+                  # Clears any stale user contexts accumulated during the rest
+                  # window (e.g. a manual-ON touch). Without this, is_manual
+                  # stays true and the two-track timer adds override_min to the
+                  # very next ON cycle. Brief flicker: Gate 2 re-activates
+                  # within 1-2 seconds on the next trigger if humidity is high.
+                  - service: homeassistant.turn_off
+                    target:
+                      entity_id: !input control_device
+
+              # ════════════════════════════════════════════════════════════════
+              # GATE 2: STANDARD HUMIDITY CONTROL
+              # ════════════════════════════════════════════════════════════════
+              # Normal humidity-based ON/OFF. Fires on every trigger that is
+              # not handled by Gate 1.
+              #
+              # Blocked ONLY during an active manual lockout window.
+              # No time-based cooldown here of any kind — safety rest lives
+              # entirely inside Gate 1's sequence where it belongs.
+              #
+              # Turn-OFF is always immediate: humidity has dropped, devices
+              # should stop now. No timer should ever delay a shutoff.
+              #
+              # Turn-ON after lockout expiry is also immediate: the automation
+              # had no reason to act during the lockout; now it can.
+              #
+              # Per-device check (any_needs_change) catches cases where one
+              # device in a multi-device group is out of sync with the rest,
+              # which the aggregate switch_state comparison would miss.
+              # ════════════════════════════════════════════════════════════════
+              - conditions:
+                  - condition: template
+                    alias: "Not in active manual lockout"
+                    value_template: "{{ not manual_lockout_active }}"
+                  - condition: template
+                    alias: "At least one device needs to change state"
+                    value_template: "{{ any_needs_change }}"
+
+                sequence:
+                  # If turning ON and stale user contexts remain from an
+                  # expired manual override, clear them first with a turn_off.
+                  # Without this, is_manual stays true and the two-track max
+                  # run timer adds override_min to the very next ON cycle.
+                  # Gate 2 only fires when manual_lockout_active is false, so
+                  # this only triggers when the override has already expired.
+                  - if:
+                      - condition: template
+                        value_template: "{{ target_mode == 'on' and is_manual }}"
+                    then:
+                      - service: homeassistant.turn_off
+                        target:
+                          entity_id: !input control_device
+                  - service: "homeassistant.turn_{{ target_mode }}"
+                    target:
+                      entity_id: !input control_device
+
+mode: single
+max_exceeded: silent
