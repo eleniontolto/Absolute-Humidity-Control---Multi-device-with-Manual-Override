@@ -102,7 +102,7 @@ After any manual device touch, the automation pauses for this many minutes befor
 
 ## Known Limitations
 
-- **Effective run time:** Due to minute-tick timing, devices run for approximately `max_run + 1` minutes per cycle rather than exactly `max_run`. Set values accordingly — if you need at least 30 minutes, set 31.
+- **Effective run time:** Due to minute-tick timing, devices run for approximately `max_run + 1` minutes per cycle rather than exactly `max_run`.
 - **Sensor response lag:** Temperature and reference humidity sensor changes may take up to 60 seconds to affect behavior. Primary humidity sensor changes are always instant.
 - **Sensor accuracy:** Consumer humidity sensors carry ±2–3% tolerance. Two sensors measuring the same air can read 4–6% apart. Avoid thresholds tighter than your sensors' combined accuracy.
 - **Manual override detection:** Relies on HA's context system. Some voice assistants and third-party integrations may not correctly identify manual changes, bypassing the lockout.
