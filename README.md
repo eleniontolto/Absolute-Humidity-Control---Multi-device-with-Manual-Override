@@ -8,8 +8,13 @@ A battle-tested Home Assistant blueprint for humidity-based device automation us
 
 ## What It Does
 
-Humidity control for Home Assistant that actually behaves the way you'd expect. Most blueprints handle the basics — turn on when humidity rises, turn off when it drops — but fall apart the moment a human gets involved or something unexpected happens. This one is built to handle the real world.
-It respects manual overrides without fighting you, protects your equipment with a configurable safety watchdog, and uses temperature-corrected humidity math to make sure it's reacting to actual moisture changes rather than phantom readings. Whether you're running a single bathroom fan or a group of devices together, it stays in sync and out of your way.
+Humidity control for Home Assistant that actually behaves the way you need. Most blueprints handle the basics — turn on a single device when humidity rises, turn off when it drops — but fall apart the moment a human gets involved or something unexpected happens. This one is built to handle the real world. At its core it turns devices on when humidity rises and off when it drops — but it goes further:
+
+- Uses temperature-corrected humidity math (Magnus-Tetens) to eliminate false triggers from room-to-room temperature differences — configured in familiar percentage (%) rather than absolute water mass units
+- Detects manual overrides and respects them, no tug-of-war
+- Protects equipment with a configurable safety watchdog and dedicated rest period
+- Controls multiple devices as a unified group with shared lockout logic
+- Gracefully handles sensor failures with configurable fallback modes
 
 ---
 
