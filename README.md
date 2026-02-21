@@ -1,4 +1,4 @@
-# Multi-Device Humidity Control with Manual Override
+# Smart Humidity Climate Control (Multi-Device with Manual Override)
 
 A battle-tested Home Assistant blueprint for humidity-based device automation using **Magnus-Tetens thermodynamic normalization** — the same physics as absolute humidity calculations, expressed as an intuitive percentage offset rather than grams per cubic meter.
 
