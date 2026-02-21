@@ -1,8 +1,8 @@
-# Absolute-Humidity-Control---Multi-device-with-Manual-Override
+# Multi-Device Humidity Control with Manual Override
 
 A battle-tested Home Assistant blueprint for humidity-based device automation using **Magnus-Tetens thermodynamic normalization** — the same physics as absolute humidity calculations, expressed as an intuitive percentage offset rather than grams per cubic meter.
 
-[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/blueprints/automation/humidity_climate_control.yaml)
+[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/eleniontolto/Absolute-Humidity-Control---Multi-device-with-Manual-Override/refs/heads/main/blueprints/automation/multidevice_humidity_control.yaml)
 
 > Replace the import badge URL above with your actual raw GitHub file URL after uploading.
 
@@ -47,10 +47,10 @@ It respects manual overrides without fighting you, protects your equipment with 
 Click the import badge at the top of this page, or paste the raw file URL into **Settings → Automations → Blueprints → Import Blueprint**.
 
 ### Manual
-1. Download `humidity_climate_control.yaml`
+1. Download `multidevice_climate_control.yaml`
 2. Place it in your Home Assistant `config/blueprints/automation/` directory
 3. Restart Home Assistant or reload blueprints
-4. Go to **Settings → Automations → Blueprints** and find *Smart Humidity Climate Control*
+4. Go to **Settings → Automations → Blueprints** and find *Multi-Device Humidity Control with Manual Override*
 
 ---
 
