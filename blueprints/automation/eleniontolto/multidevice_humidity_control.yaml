@@ -420,7 +420,7 @@ variables:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ACTION
-# Two-gate architecture inside a global enable wrapper.
+# Two-gate architecture.
 #
 # GATE 1 — Safety Max Run (force-off + safety rest)
 #   Fires when devices have run too long. Turns devices off, then holds the
@@ -437,188 +437,178 @@ variables:
 # ─────────────────────────────────────────────────────────────────────────────
 action:
   - choose:
-
-      # ── Global Enable Wrapper ──────────────────────────────────────────────
+      # ════════════════════════════════════════════════════════════════
+      # GATE 1: SAFETY MAX RUN
+      # ════════════════════════════════════════════════════════════════
+      # Fires when devices have been running too long.
+      #
+      # Two-track timer (both require not manual_lockout_active):
+      #   Automation-ON: time_diff >= max_run
+      #   Manually-ON:   time_diff >= override_min + max_run
+      #     (override window must expire first; then max_run runs fresh)
+      #
+      # After force-off, enters a smart safety rest loop:
+      #   - Watches for any device state change during the rest window
+      #   - If timeout: rest complete, normal operation resumes
+      #   - If human touch with MORE time remaining than override_min:
+      #       rest continues (the longer timer wins; touch is registered
+      #       but does not shorten the rest)
+      #   - If human touch with LESS time remaining than override_min:
+      #       rest is cancelled; override_min takes over instead
+      #   - If non-human change (another automation): ignored, rest
+      #       continues with the remaining time
+      # ════════════════════════════════════════════════════════════════
       - conditions:
           - condition: template
-            alias: "Automation is enabled"
-            value_template: "{{ is_state(enable_switch, 'on') }}"
+            alias: "Safety Max Run threshold reached"
+            value_template: >
+              {{ switch_state == 'on'
+                 and not manual_lockout_active
+                 and max_run | float(0) > 0
+                 and (
+                   (is_manual
+                    and time_diff | float(0) >= (override_min | float(0) + max_run | float(0)))
+                   or
+                   (not is_manual
+                    and time_diff | float(0) >= max_run | float(0))
+                 ) }}
 
         sequence:
-          - choose:
+          # Step 1: Force all devices off.
+          - service: homeassistant.turn_off
+            target:
+              entity_id: !input control_device
 
-              # ════════════════════════════════════════════════════════════════
-              # GATE 1: SAFETY MAX RUN
-              # ════════════════════════════════════════════════════════════════
-              # Fires when devices have been running too long.
-              #
-              # Two-track timer (both require not manual_lockout_active):
-              #   Automation-ON: time_diff >= max_run
-              #   Manually-ON:   time_diff >= override_min + max_run
-              #     (override window must expire first; then max_run runs fresh)
-              #
-              # After force-off, enters a smart safety rest loop:
-              #   - Watches for any device state change during the rest window
-              #   - If timeout: rest complete, normal operation resumes
-              #   - If human touch with MORE time remaining than override_min:
-              #       rest continues (the longer timer wins; touch is registered
-              #       but does not shorten the rest)
-              #   - If human touch with LESS time remaining than override_min:
-              #       rest is cancelled; override_min takes over instead
-              #   - If non-human change (another automation): ignored, rest
-              #       continues with the remaining time
-              # ════════════════════════════════════════════════════════════════
-              - conditions:
-                  - condition: template
-                    alias: "Safety Max Run threshold reached"
-                    value_template: >
-                      {{ switch_state == 'on'
-                         and not manual_lockout_active
-                         and max_run | float(0) > 0
-                         and (
-                           (is_manual
-                            and time_diff | float(0) >= (override_min | float(0) + max_run | float(0)))
-                           or
-                           (not is_manual
-                            and time_diff | float(0) >= max_run | float(0))
-                         ) }}
-
-                sequence:
-                  # Step 1: Force all devices off.
-                  - service: homeassistant.turn_off
-                    target:
-                      entity_id: !input control_device
-
-                  # Step 2: Safety rest loop (only if safety_rest_min > 0).
-                  # Uses wait_for_trigger watching ONLY for devices turning ON.
-                  # Devices are already off, so the only meaningful event is a
-                  # human manually turning something on during the rest window.
-                  - if:
-                      - condition: template
-                        value_template: "{{ safety_rest_min | float(0) > 0 }}"
-                    then:
-                      - variables:
-                          remaining_secs: "{{ safety_rest_min | float(0) * 60 }}"
-                          rest_end_ts: "{{ as_timestamp(now()) + safety_rest_min | float(0) * 60 }}"
-                      - repeat:
-                          until: "{{ remaining_secs <= 0 }}"
-                          sequence:
-                            # Wait for any device turning ON, or until rest expires.
-                            # Uses wall-clock rest_end_ts instead of wait.remaining
-                            # because wait.remaining returns 0 when a trigger fires
-                            # before timeout, making it unreliable for time tracking.
-                            - wait_for_trigger:
-                                - platform: state
-                                  entity_id: !input control_device
-                                  to: 'on'
-                              timeout: "{{ remaining_secs }}"
-                              continue_on_timeout: true
-
-                            - choose:
-
-                                # ── Rest timed out naturally ───────────────
-                                # Rest is complete. Set remaining to 0 so the
-                                # until condition exits the loop.
-                                - conditions:
-                                    - condition: template
-                                      value_template: "{{ wait.trigger is none }}"
-                                  sequence:
-                                    - variables:
-                                        remaining_secs: 0
-
-                                # ── Human turned a device ON ───────────────
-                                # Device stays ON for override_min then turns
-                                # back off. Rest end time is extended if the
-                                # override window would outlast it — ensuring
-                                # the rest period is never cut short.
-                                - conditions:
-                                    - condition: template
-                                      value_template: >
-                                        {{ wait.trigger is not none
-                                           and wait.trigger.to_state.context.user_id
-                                               is not none }}
-                                  sequence:
-                                    # Extend rest end if override outlasts it.
-                                    - variables:
-                                        rest_end_ts: >
-                                          {{ [rest_end_ts,
-                                              as_timestamp(now()) + override_min | float(0) * 60]
-                                             | max }}
-                                    # Hold for the full override window.
-                                    - delay:
-                                        seconds: "{{ (override_min | float(0) * 60) | int }}"
-                                    # Turn device back off — override expired.
-                                    - service: homeassistant.turn_off
-                                      target:
-                                        entity_id: !input control_device
-                                    # Recalculate remaining rest from wall clock.
-                                    - variables:
-                                        remaining_secs: >
-                                          {{ [rest_end_ts - as_timestamp(now()), 0] | max }}
-
-                                # ── Another automation turned a device ON ──
-                                # Non-human ON event. Ignore, continue rest
-                                # using true remaining time from wall clock.
-                              default:
-                                - variables:
-                                    remaining_secs: >
-                                      {{ [rest_end_ts - as_timestamp(now()), 0] | max }}
-
-                  # Step 3: Reclaim all devices after rest loop exits.
-                  # Clears any stale user contexts accumulated during the rest
-                  # window (e.g. a manual-ON touch). Without this, is_manual
-                  # stays true and the two-track timer adds override_min to the
-                  # very next ON cycle. Brief flicker: Gate 2 re-activates
-                  # within 1-2 seconds on the next trigger if humidity is high.
-                  - service: homeassistant.turn_off
-                    target:
-                      entity_id: !input control_device
-
-              # ════════════════════════════════════════════════════════════════
-              # GATE 2: STANDARD HUMIDITY CONTROL
-              # ════════════════════════════════════════════════════════════════
-              # Normal humidity-based ON/OFF. Fires on every trigger that is
-              # not handled by Gate 1.
-              #
-              # Blocked ONLY during an active manual lockout window.
-              # No time-based cooldown here of any kind — safety rest lives
-              # entirely inside Gate 1's sequence where it belongs.
-              #
-              # Turn-OFF is always immediate: humidity has dropped, devices
-              # should stop now. No timer should ever delay a shutoff.
-              #
-              # Turn-ON after lockout expiry is also immediate: the automation
-              # had no reason to act during the lockout; now it can.
-              #
-              # Per-device check (any_needs_change) catches cases where one
-              # device in a multi-device group is out of sync with the rest,
-              # which the aggregate switch_state comparison would miss.
-              # ════════════════════════════════════════════════════════════════
-              - conditions:
-                  - condition: template
-                    alias: "Not in active manual lockout"
-                    value_template: "{{ not manual_lockout_active }}"
-                  - condition: template
-                    alias: "At least one device needs to change state"
-                    value_template: "{{ any_needs_change }}"
-
-                sequence:
-                  # If turning ON and stale user contexts remain from an
-                  # expired manual override, clear them first with a turn_off.
-                  # Without this, is_manual stays true and the two-track max
-                  # run timer adds override_min to the very next ON cycle.
-                  # Gate 2 only fires when manual_lockout_active is false, so
-                  # this only triggers when the override has already expired.
-                  - if:
-                      - condition: template
-                        value_template: "{{ target_mode == 'on' and is_manual }}"
-                    then:
-                      - service: homeassistant.turn_off
-                        target:
+          # Step 2: Safety rest loop (only if safety_rest_min > 0).
+          # Uses wait_for_trigger watching ONLY for devices turning ON.
+          # Devices are already off, so the only meaningful event is a
+          # human manually turning something on during the rest window.
+          - if:
+              - condition: template
+                value_template: "{{ safety_rest_min | float(0) > 0 }}"
+            then:
+              - variables:
+                  remaining_secs: "{{ safety_rest_min | float(0) * 60 }}"
+                  rest_end_ts: "{{ as_timestamp(now()) + safety_rest_min | float(0) * 60 }}"
+              - repeat:
+                  until: "{{ remaining_secs <= 0 }}"
+                  sequence:
+                    # Wait for any device turning ON, or until rest expires.
+                    # Uses wall-clock rest_end_ts instead of wait.remaining
+                    # because wait.remaining returns 0 when a trigger fires
+                    # before timeout, making it unreliable for time tracking.
+                    - wait_for_trigger:
+                        - platform: state
                           entity_id: !input control_device
-                  - service: "homeassistant.turn_{{ target_mode }}"
-                    target:
-                      entity_id: !input control_device
+                          to: 'on'
+                      timeout: "{{ remaining_secs }}"
+                      continue_on_timeout: true
+
+                    - choose:
+
+                        # ── Rest timed out naturally ───────────────
+                        # Rest is complete. Set remaining to 0 so the
+                        # until condition exits the loop.
+                        - conditions:
+                            - condition: template
+                              value_template: "{{ wait.trigger is none }}"
+                          sequence:
+                            - variables:
+                                remaining_secs: 0
+
+                        # ── Human turned a device ON ───────────────
+                        # Device stays ON for override_min then turns
+                        # back off. Rest end time is extended if the
+                        # override window would outlast it — ensuring
+                        # the rest period is never cut short.
+                        - conditions:
+                            - condition: template
+                              value_template: >
+                                {{ wait.trigger is not none
+                                   and wait.trigger.to_state.context.user_id
+                                       is not none }}
+                          sequence:
+                            # Extend rest end if override outlasts it.
+                            - variables:
+                                rest_end_ts: >
+                                  {{ [rest_end_ts,
+                                      as_timestamp(now()) + override_min | float(0) * 60]
+                                     | max }}
+                            # Hold for the full override window.
+                            - delay:
+                                seconds: "{{ (override_min | float(0) * 60) | int }}"
+                            # Turn device back off — override expired.
+                            - service: homeassistant.turn_off
+                              target:
+                                entity_id: !input control_device
+                            # Recalculate remaining rest from wall clock.
+                            - variables:
+                                remaining_secs: >
+                                  {{ [rest_end_ts - as_timestamp(now()), 0] | max }}
+
+                        # ── Another automation turned a device ON ──
+                        # Non-human ON event. Ignore, continue rest
+                        # using true remaining time from wall clock.
+                      default:
+                        - variables:
+                            remaining_secs: >
+                              {{ [rest_end_ts - as_timestamp(now()), 0] | max }}
+
+          # Step 3: Reclaim all devices after rest loop exits.
+          # Clears any stale user contexts accumulated during the rest
+          # window (e.g. a manual-ON touch). Without this, is_manual
+          # stays true and the two-track timer adds override_min to the
+          # very next ON cycle. Brief flicker: Gate 2 re-activates
+          # within 1-2 seconds on the next trigger if humidity is high.
+          - service: homeassistant.turn_off
+            target:
+              entity_id: !input control_device
+
+      # ════════════════════════════════════════════════════════════════
+      # GATE 2: STANDARD HUMIDITY CONTROL
+      # ════════════════════════════════════════════════════════════════
+      # Normal humidity-based ON/OFF. Fires on every trigger that is
+      # not handled by Gate 1.
+      #
+      # Blocked ONLY during an active manual lockout window.
+      # No time-based cooldown here of any kind — safety rest lives
+      # entirely inside Gate 1's sequence where it belongs.
+      #
+      # Turn-OFF is always immediate: humidity has dropped, devices
+      # should stop now. No timer should ever delay a shutoff.
+      #
+      # Turn-ON after lockout expiry is also immediate: the automation
+      # had no reason to act during the lockout; now it can.
+      #
+      # Per-device check (any_needs_change) catches cases where one
+      # device in a multi-device group is out of sync with the rest,
+      # which the aggregate switch_state comparison would miss.
+      # ════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: template
+            alias: "Not in active manual lockout"
+            value_template: "{{ not manual_lockout_active }}"
+          - condition: template
+            alias: "At least one device needs to change state"
+            value_template: "{{ any_needs_change }}"
+
+        sequence:
+          # If turning ON and stale user contexts remain from an
+          # expired manual override, clear them first with a turn_off.
+          # Without this, is_manual stays true and the two-track max
+          # run timer adds override_min to the very next ON cycle.
+          # Gate 2 only fires when manual_lockout_active is false, so
+          # this only triggers when the override has already expired.
+          - if:
+              - condition: template
+                value_template: "{{ target_mode == 'on' and is_manual }}"
+            then:
+              - service: homeassistant.turn_off
+                target:
+                  entity_id: !input control_device
+          - service: "homeassistant.turn_{{ target_mode }}"
+            target:
+              entity_id: !input control_device
 
 mode: single
 max_exceeded: silent
