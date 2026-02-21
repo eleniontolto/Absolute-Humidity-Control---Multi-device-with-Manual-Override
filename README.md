@@ -4,8 +4,6 @@ A battle-tested Home Assistant blueprint for humidity-based device automation us
 
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://raw.githubusercontent.com/eleniontolto/Absolute-Humidity-Control---Multi-device-with-Manual-Override/refs/heads/main/blueprints/automation/eleniontolto/multidevice_humidity_control.yaml)
 
-> Replace the import badge URL above with your actual raw GitHub file URL after uploading.
-
 ---
 
 ## What It Does
