@@ -104,16 +104,6 @@ blueprint:
           domain: sensor
           device_class: temperature
 
-    automation_enable:
-      name: Automation Enable Toggle
-      description: >
-        An Input Boolean helper that lets you pause this automation from
-        the dashboard without deleting it. Create this in
-        Settings → Helpers before configuring this blueprint.
-      selector:
-        entity:
-          domain: input_boolean
-
     reference_humidity:
       name: Static Baseline Humidity
       description: >
@@ -277,8 +267,6 @@ blueprint:
 trigger:
   - platform: state
     entity_id: !input humidity_sensor
-  - platform: state
-    entity_id: !input automation_enable
   - platform: time_pattern
     minutes: "/1"
 
@@ -302,7 +290,6 @@ variables:
   max_run:          !input max_run_time
   safety_rest_min:  !input safety_rest_time
   override_min:     !input override_timeout
-  enable_switch:    !input automation_enable
   target_entities:  !input control_device
 
   # ── Manual Override Detection ──────────────────────────────────────────────
