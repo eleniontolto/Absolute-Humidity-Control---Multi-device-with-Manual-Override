@@ -1,7 +1,7 @@
 blueprint:
-  name: Multi-Device Humidity Control with Manual Override
+  name: Smart Humidity Climate Control (Multi-Device with Manual Override)
   description: |
-    ### **Multi-Device Humidity Control with Manual Override**
+    ### **Smart Humidity Climate Control (Multi-Device with Manual Override)**
     A high-fidelity climate controller using thermodynamic normalization (Magnus-Tetens)
     to track moisture levels across varying temperature zones. It provides the accuracy
     of "Absolute Humidity" math with the intuitive ease of **Percentage (%)** controls.
