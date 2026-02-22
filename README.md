@@ -77,9 +77,9 @@ Click the import badge at the top of this page, or paste the raw file URL into *
 
 **Full Thermodynamic Mode** (all four sensors configured): Reference humidity is normalized to the primary room's temperature using the Magnus-Tetens equation before comparison. Most accurate for homes where the primary and reference sensors are at different temperatures.
 
-**Raw RH% Mode** (reference sensors present, temperature sensors absent or offline): Compares raw relative humidity values directly. Only reliable when both sensor locations stay at near-identical temperatures.
+**Raw RH% Mode** (primary and reference humidity sensors required): Compares raw relative humidity values directly. Only reliable when both sensor locations stay at near-identical temperatures.
 
-**Static Baseline Mode** (no reference sensors, or fallback): Compares primary humidity against a fixed slider value. Simple and predictable; good for bathrooms or laundry rooms where you just want to trigger above a set level.
+**Static Baseline Mode** (no reference sensors required): Compares primary humidity against a fixed slider value. Simple and predictable; good for bathrooms or laundry rooms where you just want to trigger above a set level.
 
 ---
 
