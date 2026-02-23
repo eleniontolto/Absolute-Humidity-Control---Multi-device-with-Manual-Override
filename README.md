@@ -52,7 +52,7 @@ Click the import badge at the top of this page, or paste the raw file URL into *
 1. Download `multidevice_humidity_control.yaml`
 2. Place it in your Home Assistant `config/blueprints/automation/` directory
 3. Restart Home Assistant or reload blueprints
-4. Go to **Settings → Automations → Blueprints** and find *Multi-Device Humidity Control with Manual Override*
+4. Go to **Settings → Automations → Blueprints** and find *Smart Humidity Climate Control (Multi-Device with Manual Override)*
 
 ---
 
@@ -75,7 +75,7 @@ Click the import badge at the top of this page, or paste the raw file URL into *
 
 ### Sensor Modes
 
-**Full Thermodynamic Mode** (all four sensors configured): Reference humidity is normalized to the primary room's temperature using the Magnus-Tetens equation before comparison. Most accurate for homes where the primary and reference sensors are at different temperatures.
+**Full Thermodynamic Mode** (all four sensors configured): Reference humidity is normalized to the primary room's temperature using the Magnus-Tetens equation before comparison. Recommended for homes where the primary and reference sensors are at different temperatures.
 
 **Raw RH% Mode** (primary and reference humidity sensors required): Compares raw relative humidity values directly. Only reliable when both sensor locations stay at near-identical temperatures.
 
@@ -108,7 +108,7 @@ After any manual device touch, the automation pauses for this many minutes befor
 - **Manual override detection:** Relies on HA's context system. Some voice assistants and third-party integrations may not correctly identify manual changes, bypassing the lockout.
 - **HA restart during Safety Rest:** The rest timer is lost on restart. Devices may re-activate before the full rest period has elapsed.
 - **Device flicker:** Devices may briefly turn off then immediately back on during transitions out of manual override periods. This is intentional — the automation clears stale user contexts before reclaiming devices to ensure timer logic stays accurate.
-- **Helper Group tip:** If using a Helper Group, "All Entities" OFF mode is recommended — "All Entities" ON can cause partial manual-ON states to go undetected by the lockout.
+- **Helper Groups:** Manual override is only detected when the group's master toggle changes state. This means switching individual entities within the group may be missed, depending on the "All Entities" setting used when creating the Helper Group.
 
 ---
 
